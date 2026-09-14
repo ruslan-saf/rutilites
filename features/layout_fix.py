@@ -63,7 +63,19 @@ for _i in range(1, 13):
     NAMED_VKS[f"f{_i}"] = 0x6F + _i  # F1=0x70 … F12=0x7B
 
 KEYEVENTF_KEYUP = 0x0002
+WM_INPUTLANGCHANGEREQUEST = 0x0050
+HKL_EN_US = 0x04090409  # English (US)
+HKL_RU_RU = 0x04190419  # Russian
 user32 = ctypes.WinDLL("user32", use_last_error=True)
+
+
+def _switch_system_layout(to_russian: bool) -> bool:
+    """Switch the keyboard layout of the foreground window."""
+    hkl = HKL_RU_RU if to_russian else HKL_EN_US
+    hwnd = user32.GetForegroundWindow()
+    if not hwnd:
+        return False
+    return bool(user32.PostMessageW(hwnd, WM_INPUTLANGCHANGEREQUEST, 0, hkl))
 
 
 def _get_async_key_state(vk: int) -> bool:
@@ -304,7 +316,15 @@ class LayoutFix(QObject):
 
         ru = sum(1 for c in text if c in RU_CHARS)
         en = sum(1 for c in text if c in EN_CHARS)
+        to_russian = en > ru  # EN → RU means target layout is Russian
         direction = "RU → EN" if ru >= en else "EN → RU"
+
+        time.sleep(0.05)
+        if _switch_system_layout(to_russian):
+            log.info("system layout switched to %s", "RU" if to_russian else "EN")
+        else:
+            log.warning("system layout switch failed")
+
         log.info("converted %s, len=%d", direction, len(text))
         self.converted.emit(direction)
 
