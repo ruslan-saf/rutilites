@@ -71,6 +71,7 @@ class _Card(QFrame):
 
 class SettingsDialog(QDialog):
     hotkey_changed = Signal(str)
+    screen_off_hotkey_changed = Signal(str)
     autostart_toggled = Signal(bool)
     keep_awake_default_changed = Signal(bool)
 
@@ -115,6 +116,24 @@ class SettingsDialog(QDialog):
         hotkey_card.add(hint)
         layout.addWidget(hotkey_card)
 
+        # --- Screen-off card ---
+        hdr_so = QLabel("Экран")
+        hdr_so.setObjectName("SectionHeader")
+        layout.addWidget(hdr_so)
+
+        so_card = _Card()
+        so_label = QLabel("Хоткей выключения/включения экрана")
+        self._screen_off_edit = QKeySequenceEdit()
+        self._screen_off_edit.setKeySequence(pynput_to_qt(config.get("hotkey_screen_off")))
+        so_hint = QLabel("Гасит только дисплей, электропитание системы не меняется. "
+                         "Включить: тот же хоткей или любое движение мыши/клавиша.")
+        so_hint.setObjectName("Subtitle")
+        so_hint.setWordWrap(True)
+        so_card.add(so_label)
+        so_card.add(self._screen_off_edit)
+        so_card.add(so_hint)
+        layout.addWidget(so_card)
+
         # --- Behaviour card ---
         hdr2 = QLabel("Поведение")
         hdr2.setObjectName("SectionHeader")
@@ -123,7 +142,7 @@ class SettingsDialog(QDialog):
         beh_card = _Card()
         self._autostart_cb = QCheckBox("Запускать при входе в Windows")
         self._autostart_cb.setChecked(autostart.is_enabled())
-        self._keep_awake_default_cb = QCheckBox("Включать «не выключать экран» при старте")
+        self._keep_awake_default_cb = QCheckBox("Включать «не уходить в сон» при старте")
         self._keep_awake_default_cb.setChecked(bool(config.get("keep_awake_on_start")))
         beh_card.add(self._autostart_cb)
         beh_card.add(self._keep_awake_default_cb)
@@ -149,6 +168,11 @@ class SettingsDialog(QDialog):
         if new_hotkey and new_hotkey != self._config.get("hotkey_layout_fix"):
             self._config.set("hotkey_layout_fix", new_hotkey)
             self.hotkey_changed.emit(new_hotkey)
+
+        new_so = qt_to_pynput(self._screen_off_edit.keySequence())
+        if new_so and new_so != self._config.get("hotkey_screen_off"):
+            self._config.set("hotkey_screen_off", new_so)
+            self.screen_off_hotkey_changed.emit(new_so)
 
         autostart_on = self._autostart_cb.isChecked()
         if autostart_on != autostart.is_enabled():

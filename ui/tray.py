@@ -14,6 +14,7 @@ class Tray(QObject):
     open_settings = Signal()
     quit_requested = Signal()
     toggle_keep_awake = Signal()
+    screen_off_requested = Signal()
     toggle_autostart = Signal(bool)
 
     def __init__(self, parent: QObject | None = None) -> None:
@@ -29,7 +30,7 @@ class Tray(QObject):
         menu.addAction(self._status_action)
         menu.addSeparator()
 
-        self._keep_awake_action = QAction("Не выключать экран", menu)
+        self._keep_awake_action = QAction("Не уходить в сон", menu)
         self._keep_awake_action.setCheckable(True)
         self._keep_awake_action.triggered.connect(lambda _checked: self.toggle_keep_awake.emit())
         menu.addAction(self._keep_awake_action)
@@ -37,6 +38,10 @@ class Tray(QObject):
         self._fix_layout_info = QAction("Исправить раскладку: —", menu)
         self._fix_layout_info.setEnabled(False)
         menu.addAction(self._fix_layout_info)
+
+        self._screen_off_action = QAction("Выключить экран", menu)
+        self._screen_off_action.triggered.connect(lambda _checked: self.screen_off_requested.emit())
+        menu.addAction(self._screen_off_action)
 
         menu.addSeparator()
 
@@ -67,14 +72,17 @@ class Tray(QObject):
     def set_keep_awake(self, on: bool) -> None:
         self._keep_awake_action.setChecked(on)
         self._tray.setIcon(app_icon(on))
-        self._status_action.setText(f"{APP_NAME} · " + ("экран не гаснет" if on else "обычный режим"))
-        self._tray.setToolTip(f"{APP_NAME}\n" + ("Не выключать экран: ВКЛ" if on else "Не выключать экран: выкл"))
+        self._status_action.setText(f"{APP_NAME} · " + ("не уходит в сон" if on else "обычный режим"))
+        self._tray.setToolTip(f"{APP_NAME}\n" + ("Не уходить в сон: ВКЛ" if on else "Не уходить в сон: выкл"))
 
     def set_autostart(self, on: bool) -> None:
         self._autostart_action.setChecked(on)
 
     def set_hotkey_label(self, pretty: str) -> None:
         self._fix_layout_info.setText(f"Исправить раскладку: {pretty}")
+
+    def set_screen_off_label(self, pretty: str) -> None:
+        self._screen_off_action.setText(f"Выключить экран ({pretty})")
 
     def _on_activated(self, reason: QSystemTrayIcon.ActivationReason) -> None:
         if reason == QSystemTrayIcon.Trigger:  # single click

@@ -2,13 +2,14 @@ from __future__ import annotations
 
 import sys
 
-from PySide6.QtCore import QSharedMemory, Qt
+from PySide6.QtCore import QSharedMemory, Qt, QTimer
 from PySide6.QtWidgets import QApplication, QMessageBox
 
 from config import APP_NAME, Config
 from features import autostart
 from features.keep_awake import KeepAwake
 from features.layout_fix import LayoutFix
+from features.screen_off import ScreenOff
 from ui.icon import app_icon
 from ui.settings_dialog import SettingsDialog, pynput_to_qt
 from ui.styles import DARK_QSS
@@ -25,6 +26,9 @@ class App:
         self.config = Config()
         self.keep_awake = KeepAwake()
         self.layout_fix = LayoutFix(self.config.get("hotkey_layout_fix"))
+        self.screen_off = ScreenOff(self.config.get("hotkey_screen_off"))
+        self._screen_poll = QTimer()
+        self._screen_poll.setInterval(500)
         self.tray = Tray()
         self._settings_dialog: SettingsDialog | None = None
 
@@ -38,6 +42,10 @@ class App:
         self.tray.toggle_autostart.connect(self._on_toggle_autostart)
         self.layout_fix.converted.connect(self._on_layout_converted)
         self.layout_fix.failed.connect(self._on_layout_failed)
+        self.screen_off.triggered.connect(self._on_screen_toggle)
+        self.tray.screen_off_requested.connect(self._on_screen_off_from_menu)
+        self.screen_off.failed.connect(self._on_layout_failed)
+        self._screen_poll.timeout.connect(self._poll_screen)
 
     def _apply_initial_state(self) -> None:
         # Keep-awake initial
@@ -51,6 +59,9 @@ class App:
         self.tray.set_hotkey_label(pretty_hotkey(self.config.get("hotkey_layout_fix")))
         self.layout_fix.start()
 
+        self.tray.set_screen_off_label(pretty_hotkey(self.config.get("hotkey_screen_off")))
+        self.screen_off.start()
+
         self.tray.show()
 
     # --- handlers --------------------------------------------------------
@@ -58,7 +69,7 @@ class App:
     def _on_toggle_keep_awake(self) -> None:
         on = self.keep_awake.toggle()
         self.tray.set_keep_awake(on)
-        self.tray.notify(APP_NAME, "Экран не будет гаснуть" if on else "Обычный режим включён")
+        self.tray.notify(APP_NAME, "Компьютер не будет уходить в сон" if on else "Обычный режим включён")
 
     def _open_settings(self) -> None:
         if self._settings_dialog is not None and self._settings_dialog.isVisible():
@@ -68,6 +79,7 @@ class App:
         dlg = SettingsDialog(self.config)
         dlg.setWindowIcon(app_icon(False))
         dlg.hotkey_changed.connect(self._on_hotkey_changed)
+        dlg.screen_off_hotkey_changed.connect(self._on_screen_off_hotkey_changed)
         dlg.autostart_toggled.connect(self.tray.set_autostart)
         self._settings_dialog = dlg
         dlg.exec()
@@ -76,6 +88,28 @@ class App:
     def _on_hotkey_changed(self, new_hotkey: str) -> None:
         self.layout_fix.set_hotkey(new_hotkey)
         self.tray.set_hotkey_label(pretty_hotkey(new_hotkey))
+
+    def _on_screen_off_hotkey_changed(self, new_hotkey: str) -> None:
+        self.screen_off.set_hotkey(new_hotkey)
+        self.tray.set_screen_off_label(pretty_hotkey(new_hotkey))
+
+    def _on_screen_toggle(self) -> None:
+        if self.screen_off.is_off:
+            self.screen_off.turn_on()
+            self._screen_poll.stop()
+        else:
+            self.screen_off.turn_off()
+            self._screen_poll.start()
+
+    def _on_screen_off_from_menu(self) -> None:
+        # Give the mouse time to settle after the click, otherwise it wakes the display.
+        if not self.screen_off.is_off:
+            self.screen_off.turn_off(delay=1.0)
+            self._screen_poll.start()
+
+    def _poll_screen(self) -> None:
+        if self.screen_off.woken_by_input():
+            self._screen_poll.stop()
 
     def _on_toggle_autostart(self, checked: bool) -> None:
         autostart.set_enabled(checked)
@@ -92,6 +126,7 @@ class App:
     def _quit(self) -> None:
         self.keep_awake.set(False)
         self.layout_fix.stop()
+        self.screen_off.stop()
         self.qt_app.quit()
 
 

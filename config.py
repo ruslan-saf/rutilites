@@ -9,6 +9,7 @@ APP_NAME = "RuTilites"
 
 DEFAULTS: dict[str, Any] = {
     "hotkey_layout_fix": "<ctrl>+<shift>+z",
+    "hotkey_screen_off": "<ctrl>+<alt>+<f12>",
     "keep_awake_on_start": False,
     "autostart": False,
     "theme": "dark",
