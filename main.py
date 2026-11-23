@@ -15,6 +15,7 @@ from features.screen_off import ScreenOff
 from features.sleep_hotkey import SleepHotkey
 from ui.icon import app_icon
 from ui.settings_dialog import SettingsDialog, pynput_to_qt
+from ui.update_dialog import UpdateDialog
 from ui.styles import DARK_QSS
 from ui.tray import Tray
 
@@ -36,6 +37,7 @@ class App:
         self._screen_poll.setInterval(500)
         self.tray = Tray()
         self._settings_dialog: SettingsDialog | None = None
+        self._update_dialog: UpdateDialog | None = None
 
         self._wire()
         self._apply_initial_state()
@@ -46,6 +48,7 @@ class App:
         self.tray.open_settings.connect(self._open_settings)
         self.tray.quit_requested.connect(self._quit)
         self.tray.restart_requested.connect(self._restart)
+        self.tray.check_updates_requested.connect(lambda: self._open_updates(None))
         self.tray.toggle_autostart.connect(self._on_toggle_autostart)
         self.layout_fix.converted.connect(self._on_layout_converted)
         self.layout_fix.failed.connect(self._on_layout_failed)
@@ -116,9 +119,22 @@ class App:
         dlg.sleep_hotkey_changed.connect(self._on_sleep_hotkey_changed)
         dlg.autostart_toggled.connect(self.tray.set_autostart)
         dlg.keep_awake_mode_changed.connect(self._on_keep_awake_default_mode_changed)
+        dlg.check_updates_requested.connect(lambda: self._open_updates(dlg))
         self._settings_dialog = dlg
         dlg.exec()
         self._settings_dialog = None
+
+    def _open_updates(self, parent) -> None:  # type: ignore[no-untyped-def]
+        if self._update_dialog is not None and self._update_dialog.isVisible():
+            self._update_dialog.raise_()
+            self._update_dialog.activateWindow()
+            return
+        dlg = UpdateDialog(parent)
+        dlg.setWindowIcon(app_icon(False))
+        dlg.restart_requested.connect(self._restart)
+        self._update_dialog = dlg
+        dlg.exec()
+        self._update_dialog = None
 
     def _on_keep_awake_default_mode_changed(self, mode: str) -> None:
         # If keep-awake is on right now, switch it to the newly chosen mode.

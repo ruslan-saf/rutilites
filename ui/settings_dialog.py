@@ -127,6 +127,7 @@ class SettingsDialog(QDialog):
     autostart_toggled = Signal(bool)
     keep_awake_default_changed = Signal(bool)
     keep_awake_mode_changed = Signal(str)
+    check_updates_requested = Signal()
 
     def __init__(self, config: Config, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -158,9 +159,15 @@ class SettingsDialog(QDialog):
         head_text.setSpacing(2)
         head_text.addWidget(title)
         head_text.addWidget(subtitle)
+        updates_btn = QPushButton("Проверить обновления")
+        updates_btn.clicked.connect(self.check_updates_requested.emit)
+        head_ver = QVBoxLayout()
+        head_ver.setSpacing(6)
+        head_ver.addWidget(version, 0, Qt.AlignRight)
+        head_ver.addWidget(updates_btn, 0, Qt.AlignRight)
         head.addLayout(head_text)
         head.addStretch(1)
-        head.addWidget(version)
+        head.addLayout(head_ver)
         layout.addLayout(head)
 
         # --- Hotkeys card ---

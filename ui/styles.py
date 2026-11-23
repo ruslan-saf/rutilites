@@ -63,6 +63,16 @@ QKeySequenceEdit, QLineEdit {
 }
 QKeySequenceEdit:focus, QLineEdit:focus { border-color: #4C7DF0; }
 
+QPlainTextEdit {
+    background: #242833;
+    border: 1px solid #2E3344;
+    border-radius: 8px;
+    padding: 6px;
+    font-family: "Consolas", monospace;
+    font-size: 9pt;
+    selection-background-color: #4C7DF0;
+}
+
 QComboBox {
     background: #1B1E26;
     border: 1px solid #3B4258;

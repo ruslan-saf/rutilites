@@ -14,6 +14,7 @@ class Tray(QObject):
     open_settings = Signal()
     quit_requested = Signal()
     restart_requested = Signal()
+    check_updates_requested = Signal()
     toggle_keep_awake = Signal()
     keep_awake_mode_selected = Signal(str)  # "off" | "system" | "display"
     screen_off_requested = Signal()
@@ -69,6 +70,10 @@ class Tray(QObject):
         menu.addAction(settings_action)
 
         menu.addSeparator()
+
+        updates_action = QAction("Проверить обновления…", menu)
+        updates_action.triggered.connect(self.check_updates_requested.emit)
+        menu.addAction(updates_action)
 
         restart_action = QAction("Перезапустить", menu)
         restart_action.triggered.connect(self.restart_requested.emit)
