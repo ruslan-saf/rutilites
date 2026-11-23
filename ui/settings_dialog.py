@@ -4,8 +4,10 @@ from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QKeySequence
 from PySide6.QtWidgets import (
     QCheckBox,
+    QComboBox,
     QDialog,
     QFrame,
+    QGridLayout,
     QHBoxLayout,
     QKeySequenceEdit,
     QLabel,
@@ -14,8 +16,24 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from config import APP_NAME, Config
+from config import APP_NAME, DEFAULTS, Config
 from features import autostart
+from features.layout_fix import NAMED_VKS, parse_hotkey
+from version import version_text
+
+# Qt's portable key names -> the names parse_hotkey() understands.
+_QT_TO_PYNPUT_NAMES = {
+    "pgup": "pageup", "pgdown": "pagedown", "ins": "insert", "del": "delete",
+    "backspace": "backspace", "return": "enter", "enter": "enter", "esc": "esc",
+}
+_PYNPUT_TO_QT_NAMES = {
+    "pageup": "PgUp", "pagedown": "PgDown", "insert": "Ins", "delete": "Del",
+    "enter": "Return", "return": "Return", "esc": "Esc", "escape": "Esc",
+    "backspace": "Backspace", "space": "Space", "tab": "Tab",
+}
+# A hotkey pressed while the Russian layout is active is recorded by Qt as the
+# Cyrillic letter; hotkeys match by key position, so map it to the Latin key.
+_RU_TO_LATIN = dict(zip("йцукенгшщзфывапролдячсмить", "qwertyuiopasdfghjklzxcvbnm"))
 
 
 def qt_to_pynput(seq: QKeySequence) -> str:
@@ -34,9 +52,9 @@ def qt_to_pynput(seq: QKeySequence) -> str:
         elif pl == "meta":
             out.append("<cmd>")
         elif len(p) == 1:
-            out.append(pl)
+            out.append(_RU_TO_LATIN.get(pl, pl))
         else:
-            out.append(f"<{pl}>")
+            out.append(f"<{_QT_TO_PYNPUT_NAMES.get(pl, pl)}>")
     return "+".join(out)
 
 
@@ -53,8 +71,38 @@ def pynput_to_qt(s: str) -> QKeySequence:
         elif len(pl) == 1:
             out.append(pl.upper())
         else:
-            out.append(pl.capitalize())
+            out.append(_PYNPUT_TO_QT_NAMES.get(pl, pl.capitalize()))
     return QKeySequence("+".join(out))
+
+
+def hotkey_problem(spec: str) -> str | None:
+    """Why this hotkey cannot be used, or None if it is fine."""
+    if not spec:
+        return "комбинация не задана"
+    try:
+        mods, _vk = parse_hotkey(spec)
+    except ValueError:
+        return "эта клавиша не поддерживается (буквы A–Z, цифры, F1–F12, стрелки, Home/End и т. п.)"
+    tokens = [t.strip("<>").lower() for t in spec.split("+")]
+    main = next((t for t in tokens if t not in ("ctrl", "shift", "alt", "cmd", "win")), "")
+    if len(main) == 1 and not main.isascii():
+        return "эта клавиша не поддерживается"
+    if len(main) == 1 and not main.isalnum():
+        return "знаки препинания не поддерживаются, выберите букву, цифру или F1–F12"
+    if not mods and not (main in NAMED_VKS and main.startswith("f")):
+        return "нужен модификатор (Ctrl, Alt, Shift или Win), иначе клавиша перестанет работать как обычно"
+    return None
+
+
+# (config key, label, hint, signal name)
+HOTKEYS = [
+    ("hotkey_layout_fix", "Исправить раскладку выделенного текста",
+     "RU ↔ EN, каз-раскладка не обрабатывается", "hotkey_changed"),
+    ("hotkey_screen_off", "Выключить / включить экран",
+     "гасит только дисплей, включается любой клавишей", "screen_off_hotkey_changed"),
+    ("hotkey_sleep", "Спящий режим",
+     "переводит компьютер в сон (S3)", "sleep_hotkey_changed"),
+]
 
 
 class _Card(QFrame):
@@ -68,18 +116,23 @@ class _Card(QFrame):
     def add(self, w: QWidget) -> None:
         self._lay.addWidget(w)
 
+    def add_layout(self, lay) -> None:  # type: ignore[no-untyped-def]
+        self._lay.addLayout(lay)
+
 
 class SettingsDialog(QDialog):
     hotkey_changed = Signal(str)
     screen_off_hotkey_changed = Signal(str)
+    sleep_hotkey_changed = Signal(str)
     autostart_toggled = Signal(bool)
     keep_awake_default_changed = Signal(bool)
+    keep_awake_mode_changed = Signal(str)
 
     def __init__(self, config: Config, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._config = config
         self.setWindowTitle(f"{APP_NAME} — настройки")
-        self.setMinimumWidth(440)
+        self.setMinimumWidth(680)
         self.setWindowFlag(Qt.WindowContextHelpButtonHint, False)
 
         root = QWidget(self)
@@ -96,43 +149,73 @@ class SettingsDialog(QDialog):
         title.setObjectName("Title")
         subtitle = QLabel("Маленькие удобства для Windows")
         subtitle.setObjectName("Subtitle")
-        layout.addWidget(title)
-        layout.addWidget(subtitle)
+        version = QLabel(version_text())
+        version.setObjectName("Subtitle")
+        version.setAlignment(Qt.AlignRight | Qt.AlignBottom)
+        version.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        head = QHBoxLayout()
+        head_text = QVBoxLayout()
+        head_text.setSpacing(2)
+        head_text.addWidget(title)
+        head_text.addWidget(subtitle)
+        head.addLayout(head_text)
+        head.addStretch(1)
+        head.addWidget(version)
+        layout.addLayout(head)
 
-        # --- Hotkey card ---
-        hdr = QLabel("Раскладка")
+        # --- Hotkeys card ---
+        hdr = QLabel("Горячие клавиши")
         hdr.setObjectName("SectionHeader")
         layout.addWidget(hdr)
 
-        hotkey_card = _Card()
-        hk_label = QLabel("Хоткей для смены раскладки выделенного текста")
-        self._hotkey_edit = QKeySequenceEdit()
-        self._hotkey_edit.setKeySequence(pynput_to_qt(config.get("hotkey_layout_fix")))
-        hint = QLabel("Например: Ctrl+Shift+Z. Каз-раскладка не обрабатывается.")
-        hint.setObjectName("Subtitle")
-        hint.setWordWrap(True)
-        hotkey_card.add(hk_label)
-        hotkey_card.add(self._hotkey_edit)
-        hotkey_card.add(hint)
-        layout.addWidget(hotkey_card)
+        hk_card = _Card()
+        how = QLabel("Щёлкните по полю и нажмите новую комбинацию.")
+        how.setObjectName("Subtitle")
+        hk_card.add(how)
 
-        # --- Screen-off card ---
-        hdr_so = QLabel("Экран")
-        hdr_so.setObjectName("SectionHeader")
-        layout.addWidget(hdr_so)
+        grid = QGridLayout()
+        grid.setHorizontalSpacing(10)
+        grid.setVerticalSpacing(4)
+        grid.setColumnStretch(0, 1)
+        self._edits: dict[str, QKeySequenceEdit] = {}
+        for row, (key, label, hint, _signal) in enumerate(HOTKEYS):
+            name = QLabel(label)
+            name.setWordWrap(True)
+            sub = QLabel(hint)
+            sub.setObjectName("Subtitle")
+            sub.setWordWrap(True)
+            text_box = QVBoxLayout()
+            text_box.setSpacing(0)
+            text_box.addWidget(name)
+            text_box.addWidget(sub)
 
-        so_card = _Card()
-        so_label = QLabel("Хоткей выключения/включения экрана")
-        self._screen_off_edit = QKeySequenceEdit()
-        self._screen_off_edit.setKeySequence(pynput_to_qt(config.get("hotkey_screen_off")))
-        so_hint = QLabel("Гасит только дисплей, электропитание системы не меняется. "
-                         "Включить: тот же хоткей или любое движение мыши/клавиша.")
-        so_hint.setObjectName("Subtitle")
-        so_hint.setWordWrap(True)
-        so_card.add(so_label)
-        so_card.add(self._screen_off_edit)
-        so_card.add(so_hint)
-        layout.addWidget(so_card)
+            edit = QKeySequenceEdit()
+            edit.setMaximumSequenceLength(1)
+            edit.setFixedWidth(170)
+            edit.setKeySequence(pynput_to_qt(config.get(key)))
+            edit.keySequenceChanged.connect(self._validate)
+            self._edits[key] = edit
+
+            reset = QPushButton("По умолчанию")
+            reset.setToolTip(f"Вернуть {pynput_to_qt(DEFAULTS[key]).toString()}")
+            reset.clicked.connect(lambda _c=False, k=key: self._reset(k))
+
+            grid.addLayout(text_box, row * 2, 0)
+            grid.addWidget(edit, row * 2, 1)
+            grid.addWidget(reset, row * 2, 2)
+            if row < len(HOTKEYS) - 1:
+                line = QFrame()
+                line.setObjectName("Divider")
+                line.setFixedHeight(1)
+                grid.addWidget(line, row * 2 + 1, 0, 1, 3)
+        hk_card.add_layout(grid)
+
+        self._error = QLabel("")
+        self._error.setObjectName("Error")
+        self._error.setWordWrap(True)
+        self._error.hide()
+        hk_card.add(self._error)
+        layout.addWidget(hk_card)
 
         # --- Behaviour card ---
         hdr2 = QLabel("Поведение")
@@ -146,6 +229,15 @@ class SettingsDialog(QDialog):
         self._keep_awake_default_cb.setChecked(bool(config.get("keep_awake_on_start")))
         beh_card.add(self._autostart_cb)
         beh_card.add(self._keep_awake_default_cb)
+        mode_label = QLabel("Режим «не уходить в сон» (одиночный клик по значку и запуск):")
+        mode_label.setWordWrap(True)
+        self._keep_awake_mode_combo = QComboBox()
+        self._keep_awake_mode_combo.addItem("Экран гаснет как обычно", "system")
+        self._keep_awake_mode_combo.addItem("Экран не гаснет", "display")
+        idx = self._keep_awake_mode_combo.findData(config.get("keep_awake_mode"))
+        self._keep_awake_mode_combo.setCurrentIndex(max(idx, 0))
+        beh_card.add(mode_label)
+        beh_card.add(self._keep_awake_mode_combo)
         layout.addWidget(beh_card)
 
         layout.addStretch(1)
@@ -155,24 +247,55 @@ class SettingsDialog(QDialog):
         btns.addStretch(1)
         cancel = QPushButton("Отмена")
         cancel.clicked.connect(self.reject)
-        save = QPushButton("Сохранить")
-        save.setObjectName("Primary")
-        save.setDefault(True)
-        save.clicked.connect(self._save)
+        self._save_btn = QPushButton("Сохранить")
+        self._save_btn.setObjectName("Primary")
+        self._save_btn.setDefault(True)
+        self._save_btn.clicked.connect(self._save)
         btns.addWidget(cancel)
-        btns.addWidget(save)
+        btns.addWidget(self._save_btn)
         layout.addLayout(btns)
 
-    def _save(self) -> None:
-        new_hotkey = qt_to_pynput(self._hotkey_edit.keySequence())
-        if new_hotkey and new_hotkey != self._config.get("hotkey_layout_fix"):
-            self._config.set("hotkey_layout_fix", new_hotkey)
-            self.hotkey_changed.emit(new_hotkey)
+        self._validate()
 
-        new_so = qt_to_pynput(self._screen_off_edit.keySequence())
-        if new_so and new_so != self._config.get("hotkey_screen_off"):
-            self._config.set("hotkey_screen_off", new_so)
-            self.screen_off_hotkey_changed.emit(new_so)
+    # --- hotkeys ---------------------------------------------------------
+
+    def _reset(self, key: str) -> None:
+        self._edits[key].setKeySequence(pynput_to_qt(DEFAULTS[key]))
+
+    def _specs(self) -> dict[str, str]:
+        return {key: qt_to_pynput(edit.keySequence()) for key, edit in self._edits.items()}
+
+    def _validate(self) -> bool:
+        labels = {key: label for key, label, _h, _s in HOTKEYS}
+        problems = []
+        specs = self._specs()
+        for key, spec in specs.items():
+            why = hotkey_problem(spec)
+            if why:
+                problems.append(f"«{labels[key]}»: {why}.")
+        seen: dict[tuple, str] = {}
+        for key, spec in specs.items():
+            if hotkey_problem(spec):
+                continue
+            parsed = parse_hotkey(spec)
+            if parsed in seen:
+                problems.append(f"«{labels[seen[parsed]]}» и «{labels[key]}» – одинаковая комбинация.")
+            seen.setdefault(parsed, key)
+        self._error.setText("\n".join(problems))
+        self._error.setVisible(bool(problems))
+        self._save_btn.setEnabled(not problems)
+        return not problems
+
+    # --- save ------------------------------------------------------------
+
+    def _save(self) -> None:
+        if not self._validate():
+            return
+        for key, spec in self._specs().items():
+            if spec != self._config.get(key):
+                self._config.set(key, spec)
+                signal_name = next(s for k, _l, _h, s in HOTKEYS if k == key)
+                getattr(self, signal_name).emit(spec)
 
         autostart_on = self._autostart_cb.isChecked()
         if autostart_on != autostart.is_enabled():
@@ -184,5 +307,10 @@ class SettingsDialog(QDialog):
         if kad != bool(self._config.get("keep_awake_on_start")):
             self._config.set("keep_awake_on_start", kad)
             self.keep_awake_default_changed.emit(kad)
+
+        mode = self._keep_awake_mode_combo.currentData()
+        if mode != self._config.get("keep_awake_mode"):
+            self._config.set("keep_awake_mode", mode)
+            self.keep_awake_mode_changed.emit(mode)
 
         self.accept()

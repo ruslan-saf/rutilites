@@ -13,8 +13,11 @@ from ui.icon import app_icon
 class Tray(QObject):
     open_settings = Signal()
     quit_requested = Signal()
+    restart_requested = Signal()
     toggle_keep_awake = Signal()
+    keep_awake_mode_selected = Signal(str)  # "off" | "system" | "display"
     screen_off_requested = Signal()
+    sleep_requested = Signal()
     toggle_autostart = Signal(bool)
 
     def __init__(self, parent: QObject | None = None) -> None:
@@ -30,10 +33,17 @@ class Tray(QObject):
         menu.addAction(self._status_action)
         menu.addSeparator()
 
-        self._keep_awake_action = QAction("Не уходить в сон", menu)
+        self._keep_awake_action = QAction("Не уходить в сон (экран гаснет как обычно)", menu)
         self._keep_awake_action.setCheckable(True)
-        self._keep_awake_action.triggered.connect(lambda _checked: self.toggle_keep_awake.emit())
+        self._keep_awake_action.triggered.connect(
+            lambda checked: self.keep_awake_mode_selected.emit("system" if checked else "off"))
         menu.addAction(self._keep_awake_action)
+
+        self._keep_awake_display_action = QAction("Не уходить в сон и не гасить экран", menu)
+        self._keep_awake_display_action.setCheckable(True)
+        self._keep_awake_display_action.triggered.connect(
+            lambda checked: self.keep_awake_mode_selected.emit("display" if checked else "off"))
+        menu.addAction(self._keep_awake_display_action)
 
         self._fix_layout_info = QAction("Исправить раскладку: —", menu)
         self._fix_layout_info.setEnabled(False)
@@ -42,6 +52,10 @@ class Tray(QObject):
         self._screen_off_action = QAction("Выключить экран", menu)
         self._screen_off_action.triggered.connect(lambda _checked: self.screen_off_requested.emit())
         menu.addAction(self._screen_off_action)
+
+        self._sleep_action = QAction("Спящий режим", menu)
+        self._sleep_action.triggered.connect(lambda _checked: self.sleep_requested.emit())
+        menu.addAction(self._sleep_action)
 
         menu.addSeparator()
 
@@ -56,6 +70,10 @@ class Tray(QObject):
 
         menu.addSeparator()
 
+        restart_action = QAction("Перезапустить", menu)
+        restart_action.triggered.connect(self.restart_requested.emit)
+        menu.addAction(restart_action)
+
         quit_action = QAction("Выход", menu)
         quit_action.triggered.connect(self.quit_requested.emit)
         menu.addAction(quit_action)
@@ -66,14 +84,24 @@ class Tray(QObject):
     def show(self) -> None:
         self._tray.show()
 
+    def hide(self) -> None:
+        self._tray.hide()
+
     def notify(self, title: str, message: str) -> None:
         self._tray.showMessage(title, message, app_icon(False), 2500)
 
-    def set_keep_awake(self, on: bool) -> None:
-        self._keep_awake_action.setChecked(on)
+    def set_keep_awake(self, mode: str) -> None:
+        on = mode != "off"
+        self._keep_awake_action.setChecked(mode == "system")
+        self._keep_awake_display_action.setChecked(mode == "display")
         self._tray.setIcon(app_icon(on))
-        self._status_action.setText(f"{APP_NAME} · " + ("не уходит в сон" if on else "обычный режим"))
-        self._tray.setToolTip(f"{APP_NAME}\n" + ("Не уходить в сон: ВКЛ" if on else "Не уходить в сон: выкл"))
+        status = {
+            "off": "обычный режим",
+            "system": "не уходит в сон",
+            "display": "не уходит в сон, экран не гаснет",
+        }[mode]
+        self._status_action.setText(f"{APP_NAME} · {status}")
+        self._tray.setToolTip(f"{APP_NAME}\n" + ("Не уходить в сон: " + status if on else "Не уходить в сон: выкл"))
 
     def set_autostart(self, on: bool) -> None:
         self._autostart_action.setChecked(on)
@@ -83,6 +111,9 @@ class Tray(QObject):
 
     def set_screen_off_label(self, pretty: str) -> None:
         self._screen_off_action.setText(f"Выключить экран ({pretty})")
+
+    def set_sleep_label(self, pretty: str) -> None:
+        self._sleep_action.setText(f"Спящий режим ({pretty})")
 
     def _on_activated(self, reason: QSystemTrayIcon.ActivationReason) -> None:
         if reason == QSystemTrayIcon.Trigger:  # single click

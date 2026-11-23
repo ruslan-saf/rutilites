@@ -63,6 +63,35 @@ QKeySequenceEdit, QLineEdit {
 }
 QKeySequenceEdit:focus, QLineEdit:focus { border-color: #4C7DF0; }
 
+QComboBox {
+    background: #1B1E26;
+    border: 1px solid #3B4258;
+    border-radius: 6px;
+    padding: 6px 10px;
+}
+QComboBox:focus, QComboBox:hover { border-color: #4C7DF0; }
+QComboBox::drop-down { border: none; width: 24px; }
+QComboBox QAbstractItemView {
+    background: #242833;
+    border: 1px solid #3B4258;
+    selection-background-color: #353B50;
+    outline: none;
+}
+
+QFrame#Divider { background: #2E3344; border: none; }
+
+QLabel#Error {
+    color: #FF8A80;
+    font-size: 9pt;
+}
+
+QPushButton#Primary:disabled,
+QPushButton:disabled {
+    background: #2A2E3A;
+    border-color: #2E3344;
+    color: #6A7388;
+}
+
 QCheckBox { spacing: 10px; }
 QCheckBox::indicator {
     width: 18px; height: 18px;

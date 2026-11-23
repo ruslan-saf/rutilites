@@ -10,7 +10,11 @@ APP_NAME = "RuTilites"
 DEFAULTS: dict[str, Any] = {
     "hotkey_layout_fix": "<ctrl>+<shift>+z",
     "hotkey_screen_off": "<ctrl>+<alt>+<f12>",
+    "hotkey_sleep": "<ctrl>+<alt>+q",
     "keep_awake_on_start": False,
+    # Mode used by a single tray click and by keep_awake_on_start:
+    # "system" (display turns off as usual) or "display" (display stays on).
+    "keep_awake_mode": "system",
     "autostart": False,
     "theme": "dark",
 }

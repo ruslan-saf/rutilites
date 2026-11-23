@@ -14,11 +14,33 @@ from pynput.keyboard import Key, KeyCode
 log = logging.getLogger("layout_fix")
 log.addHandler(logging.NullHandler())
 
-EN_CHARS = "`qwertyuiop[]asdfghjkl;'zxcvbnm,./~QWERTYUIOP{}ASDFGHJKL:\"ZXCVBNM<>?"
-RU_CHARS = "ёйцукенгшщзхъфывапролджэячсмитьбю.ЁЙЦУКЕНГШЩЗХЪФЫВАПРОЛДЖЭЯЧСМИТЬБЮ,"
+# The same physical keys on the US and the standard Windows Russian (ЙЦУКЕН)
+# layouts, row by row, unshifted and with Shift. Keys that type the same
+# character on both layouts (digits, -, =, !, %, *, (, ), _, +, \) are listed
+# too and simply map to themselves.
+_KEY_ROWS = [
+    ("`1234567890-=", "ё1234567890-="),
+    ("~!@#$%^&*()_+", "Ё!\"№;%:?*()_+"),
+    ("qwertyuiop[]\\", "йцукенгшщзхъ\\"),
+    ("QWERTYUIOP{}|", "ЙЦУКЕНГШЩЗХЪ/"),
+    ("asdfghjkl;'", "фывапролджэ"),
+    ("ASDFGHJKL:\"", "ФЫВАПРОЛДЖЭ"),
+    ("zxcvbnm,./", "ячсмитьбю."),
+    ("ZXCVBNM<>?", "ЯЧСМИТЬБЮ,"),
+]
+EN_CHARS = "".join(en for en, _ru in _KEY_ROWS)
+RU_CHARS = "".join(ru for _en, ru in _KEY_ROWS)
+assert len(EN_CHARS) == len(RU_CHARS) == len(set(EN_CHARS)) == len(set(RU_CHARS))
 
+# Translation is one-directional per table, so a character present on both
+# layouts at different keys (",", ".", ";", ":", "?", "/", "\"") is handled
+# correctly: e.g. "?" typed on the RU layout becomes "&", while "?" typed on
+# the US layout becomes ",".
 EN_TO_RU = str.maketrans(EN_CHARS, RU_CHARS)
 RU_TO_EN = str.maketrans(RU_CHARS, EN_CHARS)
+
+_RU_LETTERS = frozenset(c for c in RU_CHARS if c.isalpha())
+_EN_LETTERS = frozenset(c for c in EN_CHARS if c.isalpha())
 
 # Virtual-key codes (subset)
 VK_C = 0x43
@@ -129,16 +151,27 @@ def _send_ctrl_combo(vk: int) -> None:
     _kbd(VK_CONTROL, True)
 
 
+def text_is_russian(text: str) -> Optional[bool]:
+    """True if the text was typed on the RU layout, False if on the US one,
+    None if it has nothing to convert. Letters decide; punctuation is shared
+    by both layouts, so it only counts when there are no letters at all."""
+    ru = sum(1 for c in text if c in _RU_LETTERS)
+    en = sum(1 for c in text if c in _EN_LETTERS)
+    if ru == 0 and en == 0:
+        ru = sum(1 for c in text if c in RU_CHARS and RU_TO_EN.get(ord(c)) != ord(c))
+        en = sum(1 for c in text if c in EN_CHARS and EN_TO_RU.get(ord(c)) != ord(c))
+        if ru == 0 and en == 0:
+            return None
+    return ru >= en
+
+
 def detect_and_convert(text: str) -> Optional[str]:
     if not text:
         return None
-    ru_count = sum(1 for c in text if c in RU_CHARS)
-    en_count = sum(1 for c in text if c in EN_CHARS)
-    if ru_count == 0 and en_count == 0:
+    is_ru = text_is_russian(text)
+    if is_ru is None:
         return None
-    if ru_count >= en_count:
-        return text.translate(RU_TO_EN)
-    return text.translate(EN_TO_RU)
+    return text.translate(RU_TO_EN if is_ru else EN_TO_RU)
 
 
 def parse_hotkey(spec: str) -> tuple[frozenset[int], int]:
@@ -314,10 +347,8 @@ class LayoutFix(QObject):
         time.sleep(0.05)
         _send_ctrl_combo(VK_V)
 
-        ru = sum(1 for c in text if c in RU_CHARS)
-        en = sum(1 for c in text if c in EN_CHARS)
-        to_russian = en > ru  # EN → RU means target layout is Russian
-        direction = "RU → EN" if ru >= en else "EN → RU"
+        to_russian = not text_is_russian(text)  # EN → RU means target layout is Russian
+        direction = "EN → RU" if to_russian else "RU → EN"
 
         time.sleep(0.05)
         if _switch_system_layout(to_russian):
