@@ -7,7 +7,7 @@ from pathlib import Path
 
 # Bump by hand when releasing: MAJOR.MINOR.PATCH
 # (MINOR for a new feature, PATCH for a fix).
-APP_VERSION = "1.1.0"
+APP_VERSION = "1.2.0"
 
 _REPO = Path(__file__).resolve().parent
 _CREATE_NO_WINDOW = 0x08000000  # no console flash when running under pythonw
